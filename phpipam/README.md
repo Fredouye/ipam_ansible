@@ -53,4 +53,17 @@ These variable can be displayed by enabling debug mode :
 debug: true
 ```
 
+```bash
+TASK [phpipam : Display current IP address] *************************************************************************************************
+ok: [rocky8-vmware1] => {
+    "msg": [
+        "**** Existing record ****",
+        "subnet     : VM Network (192.168.3.0/24)",
+        "hostname   : rocky8-vmware1",
+        "IP address : 192.168.3.2",
+        "gateway    : 192.168.3.254",
+        "netmask    : 255.255.255.0"
+    ]
+}
+```
 
