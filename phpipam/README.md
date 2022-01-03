@@ -54,7 +54,7 @@ debug: true
 ```
 
 ```bash
-TASK [phpipam : Display current IP address] *************************************************************************************************
+TASK [phpipam : ***Debug*** Display current IP address] ********************************************************************************************
 ok: [rocky8-vmware1] => {
     "msg": [
         "**** Existing record ****",
