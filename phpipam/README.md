@@ -53,6 +53,8 @@ These variable can be displayed by enabling debug mode :
 debug: true
 ```
 
+You'll get this result :
+
 ```bash
 TASK [phpipam : ***Debug*** Display current IP address] ********************************************************************************************
 ok: [rocky8-vmware1] => {
