@@ -47,5 +47,10 @@ vm_netmask: 255.255.255.0
 vm_gateway: 192.168.3.254
 ```
 
+These variable can be displayed by enabling debug mode :
 
-If an IP address has already been declared for a host, you'll get
+```yaml
+debug: true
+```
+
+
