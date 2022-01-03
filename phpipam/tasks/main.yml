@@ -1,1 +1,112 @@
----
+- name: Ensures subnet is defined
+  fail:
+    msg: 'Subnet not defined'
+  when: vm_network is not defined
+
+- name: Gets all IP addresses
+  uri:
+    method: GET
+    url: '{{ phpipam_url }}/api/{{ phpipam_app_id }}/addresses'
+    headers:
+      token: '{{ phpipam_token }}'
+  register: all_ip_addresses
+  delegate_to: localhost
+
+- name: Checks if an IP address is alreday defined
+  set_fact:
+    existing_ip_array: '{{ all_ip_addresses.json.data | json_query(my_query_ip) }}'
+    existing_subnet_id_array: '{{ all_ip_addresses.json.data | json_query(my_query_subnet) }}'
+  vars:
+    my_query_ip: "[? hostname=='{{ inventory_hostname }}'].ip"
+    my_query_subnet: "[? hostname=='{{ inventory_hostname }}'].subnetId"
+
+- name: Extracts already defined IP address
+  set_fact:
+    vm_ip: '{{ existing_ip_array | first }}'
+    subnet_id: '{{ existing_subnet_id_array | first }}'
+  when: existing_ip_array | length > 0
+
+- name: Gets subnet ID when IP address is not defined
+  block:
+    - name: Gets all subnets
+      uri:
+        method: GET
+        url: '{{ phpipam_url }}/api/{{ phpipam_app_id }}/subnets'
+        headers:
+          token: '{{ phpipam_token }}'
+      register: all_subnets
+      delegate_to: localhost
+
+    - name: Extracts subnet ID
+      set_fact:
+        subnet_id: '{{ all_subnets.json.data | json_query(my_query) | first }}'
+      vars:
+        my_query: "[? description=='{{ vm_network }}'].id"
+  when: existing_ip_array | length == 0
+
+- name : Gathers subnet infos
+  uri:
+    method: GET
+    url: '{{ phpipam_url }}/api/{{ phpipam_app_id }}/subnets/{{ subnet_id }}/?links=false'
+    headers:
+      token: '{{ phpipam_token }}'
+  register: subnet_infos
+  delegate_to: localhost
+
+- name: Extracts netmask and gateway
+  set_fact:
+    subnet_network: '{{ subnet_infos.json.data.subnet }}'
+    subnet_mask: '{{ subnet_infos.json.data.mask }}'
+    vm_gateway: '{{ subnet_infos.json.data.gateway.ip_addr }}'
+    vm_netmask: "{{ subnet_infos.json.data.calculation['Subnet netmask'] }}"
+
+- name: Reserves an IP address for {{ inventory_hostname }}
+  block:      
+    - name: Displays a warning if subnet is full
+      fail:
+        msg: 'Warning: subnet {{ vm_network }} ({{ subnet_network }}/{{ subnet_mask }}) is full'
+      ignore_errors: true
+      when: subnet_infos.json.data.isFull|bool
+
+    - name: Returns and displays first available IP address in subnet
+      block:
+        - name: Returns first available IP address
+          uri:
+            method: POST
+            url: '{{ phpipam_url }}/api/{{ phpipam_app_id }}/addresses/first_free/{{ subnet_id }}/?hostname={{ inventory_hostname }}'
+            headers:
+              token: '{{ phpipam_token }}'
+            status_code: 201
+          register: new_ip
+          delegate_to: localhost
+
+        - name: Extracts new IP address
+          set_fact:
+            vm_ip: '{{ new_ip.json.data }}'
+
+        - name: ***Debug*** Displays new IP address"
+          debug:
+            msg:
+              - '**** New record ****'
+              - 'subnet     : {{ vm_network }} ({{ subnet_network }}/{{ subnet_mask }})'
+              - 'hostname   : {{ inventory_hostname }}'
+              - 'IP address : {{ vm_ip }}'
+              - 'gateway    : {{ vm_gateway }}'
+              - 'netmask    : {{ vm_netmask }}'
+      when: not subnet_infos.json.data.isFull|bool
+  when:
+    - debug is defined and debug | bool
+    - existing_ip_array | length == 0
+
+- name: "***Debug*** Display current IP address"
+  debug:
+    msg:
+      - '**** Existing record ****'
+      - 'subnet     : {{ vm_network }} ({{ subnet_network }}/{{ subnet_mask }})'
+      - 'hostname   : {{ inventory_hostname }}'
+      - 'IP address : {{ vm_ip }}'
+      - 'gateway    : {{ vm_gateway }}'
+      - 'netmask    : {{ vm_netmask }}'
+  when:
+    - debug is defined and debug | bool
+    - existing_ip_array | length > 0
