@@ -31,3 +31,21 @@ phpipam_token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 For every phpIPAM's subnet, you have to declare a gateway and enable "Show as name".
+
+For every host you want to set/get an IP address, you have to declare its subnet :
+
+```yaml
+vm_network: "VM Network"
+```
+
+If an IP address has already been declared, for a host, it will be fetched from phpIPAM. Otherwise, the role will reserve an IP address.
+When running the role, you'll get 3 variables for each host :
+
+```
+vm_ip: 192.168.3.101
+vm_netmask: 255.255.255.0
+vm_gateway: 192.168.3.254
+```
+
+
+If an IP address has already been declared for a host, you'll get
