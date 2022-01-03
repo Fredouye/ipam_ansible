@@ -1,1 +1,195 @@
----
+- name: Encodes username and password in Base64
+  set_fact:
+    ipam_login: "{{ ipam_login | b64encode }}"
+    ipam_password: "{{ ipam_password | b64encode }}"
+  delegate_to: localhost
+  run_once: true
+
+# ====================================
+# Record already present ?
+# ====================================
+
+- name: Checks if a record is already present
+  uri:
+    validate_certs: false
+    method: GET
+    url: "{{ ipam_url }}/rest/ip_address_list?limit=1&WHERE=name='{{ inventory_hostname }}'"
+    headers:
+      x-ipm-username: "{{ ipam_login }}"
+      x-ipm-password: "{{ ipam_password }}"
+  delegate_to: localhost
+  failed_when: false
+  register: current_record
+
+# ====================================
+# Yes, extracts the infos
+# ====================================
+
+- name: Extract infos from existing record
+  block:
+  - name: Extracts IP address from existing record
+    set_fact:
+      vm_ip: "{{ current_record.json[0].hostaddr }}"
+  
+  - name: Netmask for a 16 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.240
+    when: current_record.json[0].subnet_size|int == 16
+  
+  - name: Netmask for a 32 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.224
+    when: current_record.json[0].subnet_size|int == 32
+  
+  - name: Netmask for a 64 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.192
+    when: current_record.json[0].subnet_size|int == 64
+  
+  - name: Netmask for a 128 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.128
+    when: current_record.json[0].subnet_size|int == 128
+  
+  - name: Netmask for a 256 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.0
+    when: current_record.json[0].subnet_size|int == 256
+
+  - name: Netmask for a 1024 IP subnet
+    set_fact:
+      vm_netmask: 255.255.252.0
+    when: current_record.json[0].subnet_size|int == 1024
+
+  - name: Netmask for a 8192 IP subnet
+    set_fact:
+      vm_netmask: 255.255.224.0
+    when: current_record.json[0].subnet_size|int == 8192
+
+  - name: Converts 'ip_class_parameters' field into a list
+    set_fact:
+      ip_params: "{{ (ip_params | default({})) | combine({ item.split('=')[0]: item.split('=')[1]})  }}"
+    with_items: "{{ current_record.json[0].ip_class_parameters.split('&') }}"
+
+  - name: Extracts gateway from existing record
+    set_fact:
+      vm_gateway: "{{ ip_params['gateway'] }}"
+
+  - name: Extracts VLAN ID from existing record
+    set_fact:
+      vm_vlanid: "{{ ip_params['vlandid'] }}"
+
+  - name: Prints existing record infos
+    debug:
+      msg: "existing : {{ inventory_hostname }} : IP = {{ vm_ip }} / netmask = {{ vm_netmask }}, gateway = {{ vm_gateway }}, vlan id = {{ vm_vlanid }}"
+  when: current_record.status == 200
+
+# ====================================
+# Non, let's assign one
+# ====================================
+
+- name: Assigns a new IP address
+  block:
+  - name: Extracts subnet infos
+    uri:
+      validate_certs: false
+      method: GET
+      url: "{{ ipam_url }}/rest/ip_block_subnet_list?limit=1&WHERE=subnet_name='{{ vm_network | replace(' ','%20') }}'"
+      headers:
+        x-ipm-username: "{{ ipam_login }}"
+        x-ipm-password: "{{ ipam_password }}"
+    delegate_to: localhost
+    register: subnet_infos
+
+  - name: Gets number of free IP adresses in subnet
+    uri:
+      validate_certs: false
+      method: GET
+      url: "{{ ipam_url }}/rpc/ip_find_free_address?subnet_id={{ subnet_infos.json[0].subnet_id }}&max_find=1"
+      headers:
+        x-ipm-username: "{{ ipam_login }}"
+        x-ipm-password: "{{ ipam_password }}"
+    delegate_to: localhost
+    register: free_ip
+    when: subnet_infos.json[0].subnet_ip_free_size|int >= 2
+
+  - name: Assigns the first available IP address
+    uri:
+      validate_certs: false
+      method: POST
+      url: "{{ ipam_url }}/rest/ip_add?hostaddr={{ free_ip.json[0].hostaddr }}&name={{ inventory_hostname }}&site_id={{ subnet_infos.json[0].site_id }}&ip_class_name={{ ipam_device_type}}"
+      headers:
+        x-ipm-username: "{{ ipam_login }}"
+        x-ipm-password: "{{ ipam_password }}"
+      status_code: 201
+    delegate_to: localhost
+    register: new_vm_ip
+
+  - name: Gets infos from newly created record
+    uri:
+      validate_certs: false
+      method: GET
+      url: "{{ ipam_url }}/rest/ip_address_list?limit=1&WHERE=ip_id='{{ new_vm_ip.json[0].ret_oid }}'"
+      headers:
+        x-ipm-username: "{{ ipam_login }}"
+        x-ipm-password: "{{ ipam_password }}"
+    delegate_to: localhost
+    failed_when: false
+    register: new_record
+
+  - name: Extracts IP address from newly created record
+    set_fact:
+      vm_ip: "{{ new_record.json[0].hostaddr }}"
+
+  - name: Netmask for a 16 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.240
+    when: new_record.json[0].subnet_size|int == 16
+
+  - name: Netmask for a 32 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.224
+    when: new_record.json[0].subnet_size|int == 32
+
+  - name: Netmask for a 64 IP subnet
+    set_fact:
+      prod_netmask: 255.255.255.192
+    when: new_record.json[0].subnet_size|int == 64
+
+  - name: Netmask for a 128 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.128
+    when: new_record.json[0].subnet_size|int == 128
+
+  - name: Netmask for a 256 IP subnet
+    set_fact:
+      vm_netmask: 255.255.255.0
+    when: new_record.json[0].subnet_size|int == 256
+
+  - name: Netmask for a 1024 IP subnet
+    set_fact:
+      vm_netmask: 255.255.252.0
+    when: new_record.json[0].subnet_size|int == 1024
+
+  - name: Netmask for a 8192 IP subnet
+    set_fact:
+      vm_netmask: 255.255.224.0
+    when: new_record.json[0].subnet_size|int == 8192
+
+  - name: Converts 'ip_class_parameters' field into a list
+    set_fact:
+      ip_params: "{{ (ip_params | default({})) | combine({ item.split('=')[0]: item.split('=')[1]})  }}"
+    with_items: "{{ new_record.json[0].ip_class_parameters.split('&') }}"
+
+  - name: Extract gateway from newly created record
+    set_fact:
+      vm_gateway: "{{ ip_params['gateway'] }}"
+
+  - name: Extract VLAN ID from newly created record
+    set_fact:
+      vm_vlanid: "{{ ip_params['vlandid'] }}"
+
+  - name: Print newly created record infos
+    debug:
+      msg: "new: {{ inventory_hostname }} : IP = {{ vm_ip }} / netmask = {{ vm_netmask }}, gateway = {{ vm_gateway }}, vlan id = {{ vm_vlanid }}"
+  when: current_record.status != 200
