@@ -12,3 +12,21 @@ You can allow HTTP access (if phpIPAM is runing behind a reverse proxy, for exam
 $api_allow_unsafe = true;
 ```
 
+You then need to enable API access, through Administration -> phpIPAM settings -> API : ON
+
+One enabled, create a new key through Administration -> API -> Create API key
+
+```php
+App id : Ansible
+App permissions : Read / Write
+App security : SSL with App code token
+```
+
+You then have to add the "App code" in your Ansible's variables :
+
+```yml
+phpipam_url: https://ipam.mydomain.com
+phpipam_api_app: Ansible
+phpipam_token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
