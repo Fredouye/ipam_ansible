@@ -15,12 +15,13 @@ vm_network: "VM Network"
 ```
 
 If an IP address has already been declared, for a host, it will be fetched from phpIPAM. Otherwise, the role will reserve an IP address.
-When running the role, you'll get 3 variables for each host :
+When running the role, you'll get 4 variables for each host :
 
 ```
 vm_ip: 192.168.3.101
 vm_netmask: 255.255.255.0
 vm_gateway: 192.168.3.254
+vm_vlanid: 1234
 ```
 
 These variable can be displayed by enabling debug mode :
@@ -37,6 +38,7 @@ ok: [rocky8-vmware1] => {
     "msg": [
         "**** Existing record ****",
         "subnet     : VM Network (192.168.3.0/24)",
+        "VLAN ID    : 1234",
         "hostname   : rocky8-vmware1",
         "IP address : 192.168.3.2",
         "gateway    : 192.168.3.254",
