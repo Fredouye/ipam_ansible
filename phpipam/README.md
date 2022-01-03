@@ -14,7 +14,7 @@ $api_allow_unsafe = true;
 
 You then need to enable API access, through Administration -> phpIPAM settings -> API : ON
 
-One enabled, create a new key through Administration -> API -> Create API key
+Once enabled, create a new key through Administration -> API -> Create API key
 
 ```php
 App id : Ansible
@@ -30,3 +30,4 @@ phpipam_api_app: Ansible
 phpipam_token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
+For every phpIPAM's subnet, you have to declare a gateway and enable "Show as name".
