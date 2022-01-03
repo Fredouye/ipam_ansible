@@ -84,7 +84,7 @@
           set_fact:
             vm_ip: '{{ new_ip.json.data }}'
 
-        - name: ***Debug*** Displays new IP address"
+        - name: "***Debug*** Displays new IP address"
           debug:
             msg:
               - '**** New record ****'
