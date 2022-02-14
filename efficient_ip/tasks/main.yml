@@ -85,7 +85,7 @@
   when: current_record.status == 200
 
 # ====================================
-# Non, let's assign one
+# No, let's assign one
 # ====================================
 
 - name: Assigns a new IP address
