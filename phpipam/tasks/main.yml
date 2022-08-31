@@ -3,6 +3,12 @@
     msg: 'Subnet not defined'
   when: vm_network is not defined
 
+- name: Ensure jmespath Python module is present
+  pip:
+    name: jmespath
+    state: present
+  delegate_to: localhost
+
 - name: Gets all IP addresses
   uri:
     method: GET
