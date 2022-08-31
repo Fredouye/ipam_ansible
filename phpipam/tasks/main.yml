@@ -99,10 +99,9 @@
               - 'IP address : {{ vm_ip }}'
               - 'gateway    : {{ vm_gateway }}'
               - 'netmask    : {{ vm_netmask }}'
+          when: debug is defined and debug | bool
       when: not subnet_infos.json.data.isFull|bool
-  when:
-    - debug is defined and debug | bool
-    - existing_ip_array | length == 0
+  when: existing_ip_array | length == 0
 
 - name: "***Debug*** Display current IP address"
   debug:
