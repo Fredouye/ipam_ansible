@@ -64,6 +64,7 @@
   set_fact:
     subnet_network: '{{ subnet_infos.json.data.subnet }}'
     subnet_mask: '{{ subnet_infos.json.data.mask }}'
+    vlan_id: '{{ subnet_infos.json.data.vlanId }}'
     vm_gateway: '{{ subnet_infos.json.data.gateway.ip_addr }}'
     vm_netmask: "{{ subnet_infos.json.data.calculation['Subnet netmask'] }}"
 
@@ -96,6 +97,7 @@
             msg:
               - '**** New record ****'
               - 'subnet     : {{ vm_network }} ({{ subnet_network }}/{{ subnet_mask }})'
+              - 'VLAN ID    : {{ vlan_id }}'
               - 'hostname   : {{ inventory_hostname }}'
               - 'IP address : {{ vm_ip }}'
               - 'gateway    : {{ vm_gateway }}'
@@ -109,6 +111,7 @@
     msg:
       - '**** Existing record ****'
       - 'subnet     : {{ vm_network }} ({{ subnet_network }}/{{ subnet_mask }})'
+      - 'VLAN ID    : {{ vlan_id }}'
       - 'hostname   : {{ inventory_hostname }}'
       - 'IP address : {{ vm_ip }}'
       - 'gateway    : {{ vm_gateway }}'
