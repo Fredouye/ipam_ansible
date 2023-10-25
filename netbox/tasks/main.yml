@@ -1,0 +1,177 @@
+- name: Ensure subnet is defined
+  ansible.builtin.fail:
+    msg: 'Subnet not defined'
+  when: vm_subnet is not defined
+
+- name: Create a new Netbox token
+  block:
+    - name: Get Netbox credentials from HashiCorp Vault
+      ansible.builtin.set_fact:
+        netbox_username: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=kv/data/common/network/netbox:username') }}"
+        netbox_password: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=kv/data/common/network/netbox:password') }}"
+
+    - name: Get current date & time
+      ansible.builtin.setup:
+        gather_subset:
+          - 'min'
+      delegate_to: localhost
+
+    - name: Create a token expiring in 5 minutes
+      ansible.builtin.uri:
+        method: POST
+        url: '{{ netbox_url }}/api/users/tokens/provision/'
+        body_format: json
+        body:
+          username: "{{ netbox_username }}"
+          password: "{{ netbox_password }}"
+          expires: "{{ '%Y-%m-%dT%H:%M' | strftime( ( ansible_date_time.epoch | int ) + 300 ) }}"
+          description: "Temporary token for Ansible"
+        ca_path: "{{ lookup('ansible.builtin.env', 'CA_CERT') }}"
+        status_code: 201
+      register: new_token
+      delegate_to: localhost
+
+    - name: Extract token from response
+      ansible.builtin.set_fact:
+        netbox_token: '{{ new_token.json.key }}'
+    - debug:
+        var: new_token
+  when: not use_existing_token | bool
+
+- name: Get Netbox token from HashiCorp Vault
+  ansible.builtin.set_fact:
+    netbox_token: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=kv/data/common/network/netbox:token') }}"
+  when: use_existing_token | bool
+
+- name: Get all IP addresses from defined subnet
+  ansible.builtin.uri:
+    method: GET
+    url: '{{ netbox_url }}/api/ipam/ip-addresses/?parent={{ vm_subnet }}'
+    headers:
+      Authorization: 'Token {{ netbox_token }}'
+    ca_path: "{{ lookup('ansible.builtin.env', 'CA_CERT') }}"
+  register: ip_addresses_from_subnet
+  delegate_to: localhost
+
+- name: Check if an IP address is already defined
+  ansible.builtin.set_fact:
+    existing_ip_address: '{{ ip_addresses_from_subnet.json.results | json_query(my_query) }}'
+  vars:
+    my_query: "[? dns_name=='{{ inventory_hostname }}.{{ dns_suffix }}'].address"
+
+- name: Exit if no IP addresse has already been defined
+  ansible.builtin.fail:
+    msg: 'No IP address for {{ inventory_hostname }}.{{ dns_suffix }} in {{ vm_subnet }} prefix.'
+  when:
+    - existing_ip_address | length == 0
+    - not create_new_addresses | bool
+
+- name: Add a new address if none defined
+  block:
+    - name: Get {{ vm_subnet }} prefix infos
+      ansible.builtin.uri:
+        method: GET
+        url: '{{ netbox_url }}/api/ipam/prefixes/?prefix={{ vm_subnet }}'
+        headers:
+          Authorization: 'Token {{ netbox_token }}'
+        ca_path: "{{ lookup('ansible.builtin.env', 'CA_CERT') }}"
+      register: prefix_infos
+      delegate_to: localhost
+
+    - name: Extract prefix ID
+      ansible.builtin.set_fact:
+        prefix_id: '{{ prefix_infos.json.results[0].id }}'
+
+    - name: Exit if prefix is administratively marked as full
+      ansible.builtin.fail:
+        msg: 'Subnet {{ vm_subnet }} is marked as full.'
+      when: prefix_infos.json.results[0].mark_utilized | bool
+
+    - name: Get the list of free IP addresses for {{ vm_subnet }} prefix
+      ansible.builtin.uri:
+        method: GET
+        url: '{{ netbox_url }}/api/ipam/prefixes/{{ prefix_id }}/available-ips/'
+        headers:
+          Authorization: 'Token {{ netbox_token }}'
+        ca_path: "{{ lookup('ansible.builtin.env', 'CA_CERT') }}"
+      register: free_ip_list
+      delegate_to: localhost
+
+    - name: Exit if no free IP address in {{ vm_subnet }} prefix
+      ansible.builtin.fail:
+        msg: 'No free IP address in {{ vm_subnet }} prefix'
+      when: free_ip_list.json[0] is not defined
+
+    - name: Extract first free IP address {{ vm_subnet }} prefix
+      ansible.builtin.set_fact:
+        first_free_ip: '{{ free_ip_list.json[0].address }}'
+
+    - name: Add an IP address for {{ inventory_hostname }}
+      ansible.builtin.uri:
+        method: POST
+        url: '{{ netbox_url }}/api/ipam/ip-addresses/'
+        headers:
+          Authorization: 'Token {{ netbox_token }}'
+        body_format: json
+        body:
+          address: "{{ first_free_ip }}"
+          status: "active"
+          dns_name: "{{ inventory_hostname }}.{{ dns_suffix }}"
+          description: "API/Ansible"
+        ca_path: "{{ lookup('ansible.builtin.env', 'CA_CERT') }}"
+        status_code: 201
+      register: new_ip
+      delegate_to: localhost
+
+    - name: Extract new IP address from response
+      ansible.builtin.set_fact:
+        ip_address: "{{ new_ip.json.address }}"
+  when:
+    - existing_ip_address | length == 0
+    - create_new_addresses | bool
+
+- name: Get IP address if already defined
+  ansible.builtin.set_fact:
+    ip_address: '{{ existing_ip_address | first }}'
+  when: existing_ip_address | length == 1
+
+- name: Extract IP address and netmask
+  ansible.builtin.set_fact:
+    vm_ip: "{{ ip_address | ansible.utils.ipaddr('address') }}"
+    vm_netmask: "{{ ip_address | ansible.utils.ipaddr('netmask') }}"
+
+- name: Get a list of all prefixes
+  ansible.builtin.uri:
+    method: GET
+    url: '{{ netbox_url }}/api/ipam/prefixes/'
+    headers:
+      Authorization: 'Token {{ netbox_token }}'
+    ca_path: "{{ lookup('ansible.builtin.env', 'CA_CERT') }}"
+  register: all_prefixes
+  delegate_to: localhost
+
+- name: Extract gateway from subnet
+  ansible.builtin.set_fact:
+    vm_gateway: '{{ all_prefixes.json.results | json_query(my_query_gateway) | first }}'
+  vars:
+    my_query_gateway: "[? prefix=='{{ vm_subnet }}'].custom_fields.gateway"
+
+- name: Delete newly created token
+  ansible.builtin.uri:
+    method: DELETE
+    url: '{{ new_token.json.url }}'
+    ca_path: "{{ lookup('ansible.builtin.env', 'CA_CERT') }}"
+    headers:
+      Authorization: 'Token {{ netbox_token }}'
+    status_code: 204
+  delegate_to: localhost
+  when: not use_existing_token | bool
+
+- debug:
+    msg:
+      - "FQDN : {{ inventory_hostname }}.{{ dns_suffix }}"
+      - "IP : {{ vm_ip }}"
+      - "Netmask : {{ vm_netmask }}"
+      - "Gateway : {{ vm_gateway }}"
+      - "vSphere network : {{ vm_network }}"
+  when: debug | bool
